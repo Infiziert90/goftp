@@ -1,10 +1,5 @@
 language: go
-
-jobs:
-  include:
-    - go: "1.10"
-    - go: "1.11"
-    - go: "1.12"
+go: "1.12"
 
 before_install:
   - sudo apt-get update
