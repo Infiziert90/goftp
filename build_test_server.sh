@@ -7,7 +7,7 @@ cd ftpd
 
 ftpd_dir=`pwd`
 
-curl -O http://ftp.icm.edu.pl/packages/proftpd/distrib/source/proftpd-1.3.5.tar.gz
+curl -O https://ftp.icm.edu.pl/packages/proftpd/distrib/source/proftpd-1.3.5.tar.gz
 tar -xzf proftpd-1.3.5.tar.gz
 cd proftpd-1.3.5
 
