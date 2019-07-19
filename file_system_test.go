@@ -145,66 +145,6 @@ func mustParseTime(f, s string) time.Time {
 	return t
 }
 
-func TestParseMLST(t *testing.T) {
-	cases := []struct {
-		raw string
-		exp *ftpFile
-	}{
-		{
-			// dirs dont necessarily have size
-			"modify=19991014192630;perm=fle;type=dir;unique=806U246E0B1;UNIX.group=1;UNIX.mode=0755;UNIX.owner=0; files",
-			&ftpFile{
-				name:  "files",
-				mtime: mustParseTime(timeFormat, "19991014192630"),
-				mode:  os.FileMode(0755) | os.ModeDir,
-			},
-		},
-		{
-			// xlightftp (windows ftp server) mlsd output I found
-			"size=1089207168;type=file;modify=20090426141232; adsl TV 2009-04-22 23-55-05 Jazz Icons   Lionel Hampton Live in 1958 [Mezzo].avi",
-			&ftpFile{
-				name:  "adsl TV 2009-04-22 23-55-05 Jazz Icons   Lionel Hampton Live in 1958 [Mezzo].avi",
-				mtime: mustParseTime(timeFormat, "20090426141232"),
-				mode:  os.FileMode(0400),
-				size:  1089207168,
-			},
-		},
-		{
-			// test "type=OS.unix=slink"
-			"type=OS.unix=slink:;size=32;modify=20140728100902;UNIX.mode=0777;UNIX.uid=647;UNIX.gid=649;unique=fd01g1220c04; access-logs",
-			&ftpFile{
-				name:  "access-logs",
-				mtime: mustParseTime(timeFormat, "20140728100902"),
-				mode:  os.FileMode(0777) | os.ModeSymlink,
-				size:  32,
-			},
-		},
-		{
-			// test "type=OS.unix=symlink"
-			"modify=20150928140340;perm=adfrw;size=6;type=OS.unix=symlink;unique=801U5AA227;UNIX.group=1000;UNIX.mode=0777;UNIX.owner=1000; slinkdir",
-			&ftpFile{
-				name:  "slinkdir",
-				mtime: mustParseTime(timeFormat, "20150928140340"),
-				mode:  os.FileMode(0777) | os.ModeSymlink,
-				size:  6,
-			},
-		},
-	}
-
-	for _, c := range cases {
-		c.exp.raw = c.raw
-
-		got, err := parseMLST(c.raw, false)
-		if err != nil {
-			t.Fatal(err)
-		}
-		gotFile := got.(*ftpFile)
-		if !reflect.DeepEqual(gotFile, c.exp) {
-			t.Errorf("exp %+v\n got %+v", c.exp, gotFile)
-		}
-	}
-}
-
 func compareFileInfos(a, b os.FileInfo) error {
 	if a.Name() != b.Name() {
 		return fmt.Errorf("Name(): %s != %s", a.Name(), b.Name())
@@ -246,7 +186,7 @@ func TestReadDir(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if len(list) != 4 {
+		if len(list) != 3 {
 			t.Errorf("expected 3 items, got %d", len(list))
 		}
 
@@ -267,7 +207,7 @@ func TestReadDir(t *testing.T) {
 
 		// sanity check names are what we expected
 		sort.Strings(names)
-		if !reflect.DeepEqual(names, []string{"email%40mail.com.txt", "git-ignored", "lorem.txt", "subdir"}) {
+		if !reflect.DeepEqual(names, []string{"git-ignored", "lorem.txt", "subdir"}) {
 			t.Errorf("got: %v", names)
 		}
 
@@ -297,7 +237,7 @@ func TestReadDirNoMLSD(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if len(list) != 4 {
+		if len(list) != 3 {
 			t.Errorf("expected 3 items, got %d", len(list))
 		}
 
@@ -318,7 +258,7 @@ func TestReadDirNoMLSD(t *testing.T) {
 
 		// sanity check names are what we expected
 		sort.Strings(names)
-		if !reflect.DeepEqual(names, []string{"email%40mail.com.txt", "git-ignored", "lorem.txt", "subdir"}) {
+		if !reflect.DeepEqual(names, []string{"git-ignored", "lorem.txt", "subdir"}) {
 			t.Errorf("got: %v", names)
 		}
 
