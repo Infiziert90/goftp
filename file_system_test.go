@@ -186,8 +186,8 @@ func TestReadDir(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if len(list) != 3 {
-			t.Errorf("expected 3 items, got %d", len(list))
+		if len(list) != 4 {
+			t.Errorf("expected 4 items, got %d", len(list))
 		}
 
 		var names []string
@@ -237,8 +237,8 @@ func TestReadDirNoMLSD(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if len(list) != 3 {
-			t.Errorf("expected 3 items, got %d", len(list))
+		if len(list) != 4 {
+			t.Errorf("expected 4 items, got %d", len(list))
 		}
 
 		var names []string
