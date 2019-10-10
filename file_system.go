@@ -125,16 +125,29 @@ func commandNotSupporterdError(err error) bool {
 // be used. You may have to set ServerLocation in your config to get (more)
 // accurate ModTimes in this case.
 func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
-	entries, err := c.dataStringList("MLSD %s", path)
-
-	parser := parseMLST
-
+	pconn, err := c.getIdleConn()
 	if err != nil {
-		if !commandNotSupporterdError(err) {
-			return nil, err
-		}
+		return nil, err
+	}
+	defer c.returnConn(pconn)
 
-		entries, err = c.dataStringList("LIST %s", path)
+	var (
+		entries []string
+		parser  = parseMLST
+	)
+
+	mlst := pconn.hasFeature("MLST")
+	if mlst {
+		entries, err = c.dataStringList(pconn, "MLSD %s", path)
+		if err != nil {
+			if !commandNotSupporterdError(err) {
+				return nil, err
+			}
+			mlst = false
+		}
+	}
+	if !mlst {
+		entries, err = c.dataStringList(pconn, "LIST %s", path)
 		if err != nil {
 			return nil, err
 		}
@@ -143,12 +156,18 @@ func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 		}
 	}
 
+	if err != nil {
+		return nil, err
+	}
+
 	var ret []os.FileInfo
 	for _, entry := range entries {
 		info, err := parser(entry, true)
 		if err != nil {
 			c.debug("error in ReadDir: %s", err)
-			return nil, err
+			if !strings.Contains(err.Error(), "incomplete") {
+				return nil, err
+			}
 		}
 
 		if info == nil {
@@ -167,28 +186,35 @@ func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 // is a directory. You may have to set ServerLocation in your config to get
 // (more) accurate ModTimes when using "LIST".
 func (c *Client) Stat(path string) (os.FileInfo, error) {
-	lines, err := c.controlStringList("MLST %s", path)
+	pconn, err := c.getIdleConn()
 	if err != nil {
-		if commandNotSupporterdError(err) {
-			lines, err = c.dataStringList("LIST %s", path)
-			if err != nil {
-				return nil, err
-			}
+		return nil, err
+	}
+	defer c.returnConn(pconn)
 
-			if len(lines) != 1 {
-				return nil, ftpError{err: fmt.Errorf("unexpected LIST response: %v", lines)}
+	if pconn.hasFeature("MLST") {
+		lines, err := c.controlStringList(pconn, "MLST %s", path)
+		if err == nil {
+			if len(lines) != 3 {
+				return nil, ftpError{err: fmt.Errorf("unexpected MLST response: %v", lines)}
 			}
-
-			return parseLIST(lines[0], c.config.ServerLocation, false)
+			return parseMLST(strings.TrimLeft(lines[1], " "), false)
 		}
+		if !commandNotSupporterdError(err) {
+			return nil, err
+		}
+	}
+
+	lines, err := c.dataStringList(pconn, "LIST %s", path)
+	if err != nil {
 		return nil, err
 	}
 
-	if len(lines) != 3 {
-		return nil, ftpError{err: fmt.Errorf("unexpected MLST response: %v", lines)}
+	if len(lines) != 1 {
+		return nil, ftpError{err: fmt.Errorf("unexpected LIST response: %v", lines)}
 	}
 
-	return parseMLST(strings.TrimLeft(lines[1], " "), false)
+	return parseLIST(lines[0], c.config.ServerLocation, false)
 }
 
 func extractDirName(msg string) (string, error) {
@@ -202,17 +228,13 @@ func extractDirName(msg string) (string, error) {
 	return strings.Replace(msg[openQuote+1:closeQuote], `""`, `"`, -1), nil
 }
 
-func (c *Client) controlStringList(f string, args ...interface{}) ([]string, error) {
-	pconn, err := c.getIdleConn()
-	if err != nil {
-		return nil, err
-	}
-
-	defer c.returnConn(pconn)
-
+func (c *Client) controlStringList(pconn *persistentConn, f string, args ...interface{}) ([]string, error) {
 	cmd := fmt.Sprintf(f, args...)
 
 	code, msg, err := pconn.sendCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
 
 	if !positiveCompletionReply(code) {
 		pconn.debug("unexpected response to %s: %d-%s", cmd, code, msg)
@@ -222,14 +244,7 @@ func (c *Client) controlStringList(f string, args ...interface{}) ([]string, err
 	return strings.Split(msg, "\n"), nil
 }
 
-func (c *Client) dataStringList(f string, args ...interface{}) ([]string, error) {
-	pconn, err := c.getIdleConn()
-	if err != nil {
-		return nil, err
-	}
-
-	defer c.returnConn(pconn)
-
+func (c *Client) dataStringList(pconn *persistentConn, f string, args ...interface{}) ([]string, error) {
 	dcGetter, err := pconn.prepareDataConn()
 	if err != nil {
 		return nil, err
@@ -389,107 +404,6 @@ func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileIn
 		mtime: mtime,
 		raw:   entry,
 		size:  int64(size),
-	}
-
-	return info, nil
-}
-
-// an entry looks something like this:
-// type=file;size=12;modify=20150216084148;UNIX.mode=0644;unique=1000004g1187ec7; lorem.txt
-func parseMLST(entry string, skipSelfParent bool) (os.FileInfo, error) {
-	parseError := ftpError{err: fmt.Errorf(`failed parsing MLST entry: %s`, entry)}
-	incompleteError := ftpError{err: fmt.Errorf(`MLST entry incomplete: %s`, entry)}
-
-	parts := strings.Split(entry, "; ")
-	if len(parts) != 2 {
-		return nil, parseError
-	}
-
-	facts := make(map[string]string)
-	for _, factPair := range strings.Split(parts[0], ";") {
-		factParts := strings.SplitN(factPair, "=", 2)
-		if len(factParts) != 2 {
-			return nil, parseError
-		}
-		facts[strings.ToLower(factParts[0])] = strings.ToLower(factParts[1])
-	}
-
-	typ := facts["type"]
-
-	if typ == "" {
-		return nil, incompleteError
-	}
-
-	if skipSelfParent && (typ == "cdir" || typ == "pdir" || typ == "." || typ == "..") {
-		return nil, nil
-	}
-
-	var mode os.FileMode
-	if facts["unix.mode"] != "" {
-		m, err := strconv.ParseInt(facts["unix.mode"], 8, 32)
-		if err != nil {
-			return nil, parseError
-		}
-		mode = os.FileMode(m)
-	} else if facts["perm"] != "" {
-		// see http://tools.ietf.org/html/rfc3659#section-7.5.5
-		for _, c := range facts["perm"] {
-			switch c {
-			case 'a', 'd', 'c', 'f', 'm', 'p', 'w':
-				// these suggest you have write permissions
-				mode |= 0200
-			case 'l':
-				// can list dir entries means readable and executable
-				mode |= 0500
-			case 'r':
-				// readable file
-				mode |= 0400
-			}
-		}
-	} else {
-		// no mode info, just say it's readable to us
-		mode = 0400
-	}
-
-	if typ == "dir" || typ == "cdir" || typ == "pdir" {
-		mode |= os.ModeDir
-	} else if strings.HasPrefix(typ, "os.unix=slink") || strings.HasPrefix(typ, "os.unix=symlink") {
-		// note: there is no general way to determine whether a symlink points to a dir or a file
-		mode |= os.ModeSymlink
-	}
-
-	var (
-		size int64
-		err  error
-	)
-
-	if facts["size"] != "" {
-		size, err = strconv.ParseInt(facts["size"], 10, 64)
-	} else if mode.IsDir() && facts["sizd"] != "" {
-		size, err = strconv.ParseInt(facts["sizd"], 10, 64)
-	} else if facts["type"] == "file" {
-		return nil, incompleteError
-	}
-
-	if err != nil {
-		return nil, parseError
-	}
-
-	if facts["modify"] == "" {
-		return nil, incompleteError
-	}
-
-	mtime, err := time.ParseInLocation(timeFormat, facts["modify"], time.UTC)
-	if err != nil {
-		return nil, incompleteError
-	}
-
-	info := &ftpFile{
-		name:  filepath.Base(parts[1]),
-		size:  size,
-		mtime: mtime,
-		raw:   entry,
-		mode:  mode,
 	}
 
 	return info, nil

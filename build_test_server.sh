@@ -7,7 +7,7 @@ cd ftpd
 
 ftpd_dir=`pwd`
 
-curl -O ftp://ftp.proftpd.org/distrib/source/proftpd-1.3.5.tar.gz
+curl -O https://ftp.icm.edu.pl/packages/proftpd/distrib/source/proftpd-1.3.5.tar.gz
 tar -xzf proftpd-1.3.5.tar.gz
 cd proftpd-1.3.5
 
@@ -50,6 +50,7 @@ TLSOptions NoSessionReuseRequired
   TLSRSACertificateKeyFile $ftpd_dir/server.key
 </IfModule>
 CONF
+cat proftpd.conf
 
 cat > server.key <<"KEY"
 -----BEGIN RSA PRIVATE KEY-----
@@ -117,6 +118,7 @@ elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]; then
   echo "Doesn't support windows yet"
   exit 1
 fi
+cat users.txt
 
 chmod 600 users.txt
 

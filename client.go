@@ -149,6 +149,9 @@ type Config struct {
 	// hung connections.
 	DisableEPSV bool
 
+	// Name to identify the client software to the server name. Defaults to "goftp".
+	ClientName string
+
 	// For testing convenience.
 	stubResponses map[string]stubResponse
 }
@@ -196,6 +199,10 @@ func newClient(config Config, hosts []string) *Client {
 
 	if config.ActiveListenAddr == "" {
 		config.ActiveListenAddr = ":0"
+	}
+
+	if config.ClientName == "" {
+		config.ClientName = "goftp"
 	}
 
 	return &Client{
@@ -421,6 +428,18 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 
 	if err = pconn.fetchFeatures(); err != nil {
 		goto Error
+	}
+
+	if pconn.hasFeature("CLNT") {
+		if err = pconn.setClient(c.config.ClientName); err != nil {
+			goto Error
+		}
+	}
+
+	if pconn.hasFeature("UTF8") {
+		if err = pconn.setUnicode(); err != nil {
+			goto Error
+		}
 	}
 
 	c.mu.Lock()

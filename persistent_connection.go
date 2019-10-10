@@ -531,3 +531,31 @@ func (pconn *persistentConn) logInTLS() error {
 
 	return nil
 }
+
+func (pconn *persistentConn) setClient(client string) error {
+	code, msg, err := pconn.sendCommand("CLNT %s", client)
+	if err != nil {
+		return err
+	}
+
+	if !positiveCompletionReply(code) {
+		pconn.debug("server doesn't support CLNT: %d-%s", code, msg)
+		return nil
+	}
+
+	return nil
+}
+
+func (pconn *persistentConn) setUnicode() error {
+	code, msg, err := pconn.sendCommand("OPTS UTF8 ON")
+	if err != nil {
+		return err
+	}
+
+	if !positiveCompletionReply(code) {
+		pconn.debug("server doesn't support UTF8: %d-%s", code, msg)
+		return nil
+	}
+
+	return nil
+}
