@@ -1,3 +1,3 @@
-module github.com/crazy-max/goftp
+module github.com/Infiziert90/goftp
 
 go 1.12
